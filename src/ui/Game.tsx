@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar } from "./avatar";
 import { Dome } from "./DiceStage";
 import { Felt } from "./Felt";
-import { canThrow, formatLedger, heatLabel, money, oscillatingPower, onTable, signed } from "../game/engine";
+import { canThrow, equity, formatLedger, heatLabel, money, oscillatingPower, onTable, r2, signed } from "../game/engine";
+import { rankedScores, recordCashout, recordPeak, type ScoreRow } from "../game/scores";
 import type { Sfx } from "../game/sfx";
 import { speak } from "../game/sfx";
 import type { ClientMsg } from "../net/authority";
@@ -37,6 +38,15 @@ export function Game({
   const [holding, setHolding] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const [scores, setScores] = useState<ScoreRow[]>(() => rankedScores());
+  const [winLine, setWinLine] = useState(() => Number(localStorage.getItem("bc-win") || 50));
+  const [stopLine, setStopLine] = useState(() => Number(localStorage.getItem("bc-stop") || 50));
+  const [alertText, setAlertText] = useState("");
+  const winLatch = useRef(false);
+  const lossLatch = useRef(false);
+  const ticketSeen = useRef("");
+  const noteSeen = useRef("");
   const meterRef = useRef<HTMLDivElement | null>(null);
   const meterTxt = useRef<HTMLDivElement | null>(null);
   const powerRef = useRef(0);
@@ -84,7 +94,40 @@ export function Game({
       if (voice && sfx.on) speak(state.call);
     }
     if (state.noRollId !== p.noRollId) sfx.lossTone();
-  }, [state, me.ledger.lost, me.ledger.won, sfx, voice]);
+    const eq = equity(me);
+    const profit = r2(eq - 100);
+    if (me.note !== noteSeen.current) {
+      noteSeen.current = me.note;
+      if (me.note.startsWith("Restarted")) {
+        winLatch.current = false;
+        lossLatch.current = false;
+      }
+    }
+    if (profit >= winLine && !winLatch.current) {
+      winLatch.current = true;
+      setAlertText("WIN LINE ✓ +" + money(winLine));
+      sfx.winJingle(true);
+      if (voice) speak("Win line.");
+    } else if (profit < winLine) winLatch.current = false;
+    if (profit <= -stopLine && !lossLatch.current) {
+      lossLatch.current = true;
+      setAlertText("STOP ✗ −" + money(stopLine));
+      sfx.lossTone();
+      if (voice) speak("Stop loss.");
+    } else if (profit > -stopLine) lossLatch.current = false;
+    const peak = recordPeak(me.name, eq);
+    if (peak.isNew) {
+      setScores(rankedScores());
+      setAlertText("NEW HIGH SCORE! " + money(eq));
+      sfx.cheer(1, true);
+      if (voice) speak("New high score!");
+    }
+    if (me.ticket && me.ticket.id !== ticketSeen.current) {
+      ticketSeen.current = me.ticket.id;
+      recordCashout(me.name, me.ticket.amt);
+      setScores(rankedScores());
+    }
+  }, [state, me, sfx, voice, winLine, stopLine]);
 
   useEffect(() => {
     let raf = 0;
@@ -336,6 +379,13 @@ export function Game({
           <button type="button" onClick={() => { sfx.ensure(); send({ t: "insert", amt: 100 }); }}>INSERT $100</button>
           <button type="button" onClick={() => { sfx.ensure(); send({ t: "insert", amt: 20 }); }}>$20</button>
           <button type="button" onClick={() => send({ t: "cashout" })}>CASH OUT</button>
+          <button type="button" data-testid="restart" onClick={() => setConfirmRestart(true)}>RESTART</button>
+          <label className="line">Win
+            <input aria-label="Win line" type="number" min={1} max={500} value={winLine} onChange={(e) => { const n = Math.max(1, Number(e.target.value) || 50); setWinLine(n); localStorage.setItem("bc-win", String(n)); }} />
+          </label>
+          <label className="line">Stop
+            <input aria-label="Stop loss" type="number" min={1} max={500} value={stopLine} onChange={(e) => { const n = Math.max(1, Number(e.target.value) || 50); setStopLine(n); localStorage.setItem("bc-stop", String(n)); }} />
+          </label>
           <button type="button" onClick={() => setP((p) => { p.on = !p.on; })}>{pattern.on ? "PATTERN ON" : "PATTERN OFF"}</button>
           <button type="button" onClick={() => setVoice((v) => !v)}>{voice ? "CALLS ON" : "CALLS OFF"}</button>
           {isHost ? (
@@ -379,6 +429,35 @@ export function Game({
         </div>
       </footer>
 
+      {alertText ? (
+        <div className="alert-banner" data-testid="alert" onClick={() => setAlertText("")}>{alertText}</div>
+      ) : null}
+      <aside className="scores" data-testid="scores">
+        <div>TOP SCORES</div>
+        {scores.length === 0 ? <div className="fine">No scores yet</div> : null}
+        {scores.slice(0, 5).map((row) => (
+          <div key={row.name} className="score-row">
+            <b>{row.name}</b>
+            <span>Peak {money(row.peak)} {row.peakAt}</span>
+            <span>Cash out {row.cashout ? money(row.cashout) + " " + row.cashoutAt : "—"}</span>
+          </div>
+        ))}
+      </aside>
+      {confirmRestart ? (
+        <div className="ticket" data-testid="restart-confirm">
+          <div>
+            <div>RESTART</div>
+            <p>Clears your bets and puts credits back to $100. The point and the roll history stay. Play money only.</p>
+            <button type="button" onClick={() => { setConfirmRestart(false); send({ t: "restart" }); }}>RESTART MY CREDITS</button>
+            {isHost ? (
+              <button type="button" onClick={() => { setConfirmRestart(false); send({ t: "restartTable" }); }}>
+                RESET THE TABLE
+              </button>
+            ) : null}
+            <button type="button" onClick={() => setConfirmRestart(false)}>CANCEL</button>
+          </div>
+        </div>
+      ) : null}
       {me.ticket ? (
         <div className="ticket">
           <div>

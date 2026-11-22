@@ -670,6 +670,40 @@ export function applyPattern(s: Seat, point: number | null): string[] {
   return skipped;
 }
 
+/** Drop every wager, including contract bets, and put the seat back on the starting bankroll. */
+export function restartBankroll(s: Seat, bank = 100): void {
+  s.bets = {};
+  s.come = {};
+  s.comeOdds = {};
+  s.dontCome = {};
+  s.dontComeOdds = {};
+  s.placedSince = 0;
+  s.pays = {};
+  s.lastBets = {};
+  s.bank = bank;
+  s.hi = bank;
+  s.lo = bank;
+  s.last = 0;
+  s.lastWin = 0;
+  s.combo = 0;
+  s.ticket = null;
+  s.ledger = emptyLedger();
+  s.banner = "";
+  s.note = "Restarted at " + money(bank) + ". Roll history stays.";
+}
+
+/** Clear the puck and every bet. Roll history is left in place. */
+export function restartTable(table: Table): void {
+  table.point = null;
+  table.pointsMade = 0;
+  table.hand = 0;
+  table.passShooter = false;
+  table.celebration = null;
+  table.flash = "";
+  for (const s of table.seats) restartBankroll(s, 100);
+  table.call = "Table reset. Point off. History kept.";
+}
+
 export function clearBets(s: Seat, point: number | null): string {
   let back = 0;
   for (const k of Object.keys(s.bets)) {

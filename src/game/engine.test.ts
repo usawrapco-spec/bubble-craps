@@ -14,6 +14,7 @@ import {
   formatLedger,
   heatLabel,
   noteShortThrow,
+  onTable,
   oscillatingPower,
   layProfit,
   offMarker,
@@ -23,6 +24,8 @@ import {
   MAX_ODDS_X,
   placeChip,
   r2,
+  restartBankroll,
+  restartTable,
   trueProfit,
 } from "./engine";
 import type { RollTicket, Seat, Table, ThrowKind } from "./types";
@@ -695,6 +698,44 @@ describe("per-player bets off", () => {
     expect(offMarker(out.seats[0], "odds", null)).toBe("OFF");
     expect(offMarker(out.seats[1], "buy4", null)).toBe("OFF");
     expect(offMarker(out.seats[1], "odds", 4)).toBe("");
+  });
+});
+
+describe("restart", () => {
+  it("clears one player's bets and returns $100 without touching the point or the history", () => {
+    const s = makeSeat(40);
+    s.bets = { pass: 10, buy4: 20 };
+    s.come = { 6: 10 };
+    const t = makeTable(4, s);
+    t.hist = [[1, 3], [2, 2]];
+    restartBankroll(s, 100);
+    expect(s.bank).toBe(100);
+    expect(s.bets.pass).toBeUndefined();
+    expect(s.bets.buy4).toBeUndefined();
+    expect(s.come[6]).toBeUndefined();
+    expect(onTable(s)).toBe(0);
+    expect(t.point).toBe(4);
+    expect(t.hist).toEqual([[1, 3], [2, 2]]);
+    expect(s.note).toContain("history");
+  });
+
+  it("a table reset clears the puck and every bankroll and keeps the roll history", () => {
+    const a = makeSeat(80);
+    const b = makeSeat(20);
+    b.id = "p1";
+    a.bets = { pass: 10 };
+    b.bets = { place6: 12 };
+    const t = createTable("room", [a, b]);
+    t.point = 6;
+    t.hist = [[3, 3]];
+    restartTable(t);
+    expect(t.point).toBeNull();
+    expect(t.hist).toEqual([[3, 3]]);
+    expect(t.seats[0].bank).toBe(100);
+    expect(t.seats[1].bank).toBe(100);
+    expect(t.seats[0].bets.pass).toBeUndefined();
+    expect(t.seats[1].bets.place6).toBeUndefined();
+    expect(t.call).toContain("History kept");
   });
 });
 

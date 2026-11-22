@@ -8,6 +8,8 @@ import {
   classifyRelease,
   clearBets,
   createTable,
+  restartBankroll,
+  restartTable,
   d6,
   defaultPattern,
   finishRoll,
@@ -28,6 +30,8 @@ export type ClientMsg =
   | { t: "repeat" }
   | { t: "insert"; amt: number }
   | { t: "cashout" }
+  | { t: "restart" }
+  | { t: "restartTable" }
   | { t: "ackTicket" }
   | { t: "pattern"; pattern: Pattern }
   | { t: "oddsFlag"; on: boolean }
@@ -165,6 +169,24 @@ export class Authority {
     if (msg.t === "betsOff") {
       seat.betsOff = !!msg.on;
       seat.note = seat.betsOff ? "Bets OFF. Pass and come still work." : "Bets working.";
+      this.publish();
+      return;
+    }
+    if (msg.t === "restart" || msg.t === "restartTable") {
+      if (!canBet(phase)) {
+        seat.note = "Wait for the betting window to restart.";
+        this.publish();
+        return;
+      }
+      if (msg.t === "restartTable") {
+        if (seatId !== this.hostSeatId) return;
+        const hist = this.table.hist;
+        restartTable(this.table);
+        this.table.hist = hist;
+        this.publish();
+        return;
+      }
+      restartBankroll(seat, 100);
       this.publish();
       return;
     }
